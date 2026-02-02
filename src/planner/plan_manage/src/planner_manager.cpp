@@ -209,10 +209,69 @@ namespace ego_planner
     iniState.col(1) = start_vel;
     iniState.col(2) = start_acc;
     int id = 1;
-    double time_offset = ros::Time::now().toSec() - swarm_trajs_buf_.at(id).start_time_.toSec();
+    
+    // 检查 swarm_trajs_buf_ 是否有有效数据
+    if (swarm_trajs_buf_.size() <= static_cast<size_t>(id)) {
+      ROS_WARN("[kino replan]: swarm_trajs_buf_ size (%zu) <= id (%d), target trajectory not available yet. Using fallback method.", 
+               swarm_trajs_buf_.size(), id);
+      return false;  // 返回 false，让调用者使用 reboundReplan 作为 fallback
+    }
+    
+    // 检查目标轨迹是否已初始化（drone_id == id 表示已填充有效数据）
+    if (swarm_trajs_buf_[id].drone_id != id) {
+      ROS_WARN("[kino replan]: Target trajectory (id=%d) not initialized yet (drone_id=%d). Using fallback method.", 
+               id, swarm_trajs_buf_[id].drone_id);
+      return false;  // 返回 false，让调用者使用 reboundReplan 作为 fallback
+    }
+    
+    // 检查 start_time_ 是否有效（ros::Time(0) 表示未初始化）
+    // 使用更严格的检查：start_time_ 应该在合理范围内（不能是 1970-01-01 或未来时间）
+    double start_time_sec = swarm_trajs_buf_[id].start_time_.toSec();
+    double current_time_sec = ros::Time::now().toSec();
+    
+    if (start_time_sec < 1e-5 || start_time_sec > current_time_sec + 10.0) {
+      ROS_WARN("[kino replan]: Target trajectory start_time_ is invalid (start=%.6f, now=%.6f). Using fallback method.", 
+               start_time_sec, current_time_sec);
+      return false;  // 返回 false，让调用者使用 reboundReplan 作为 fallback
+    }
+    
+    double time_offset = current_time_sec - start_time_sec;
     // double time_offset = 0;
     cout << "time offset:" << time_offset << endl;
-    if( !kino_path_finder_->search(swarm_trajs_buf_.at(id).position_traj_, iniState, time_offset ) )
+    
+    // 检查 position_traj_ 是否有效（检查是否有控制点）
+    Eigen::MatrixXd target_ctrl_pts = swarm_trajs_buf_[id].position_traj_.getControlPoint();
+    if (target_ctrl_pts.cols() < 4) {
+      ROS_WARN("[kino replan]: Target trajectory position_traj_ is invalid (control points: %d). Using fallback method.", 
+               static_cast<int>(target_ctrl_pts.cols()));
+      return false;  // 返回 false，让调用者使用 reboundReplan 作为 fallback
+    }
+    
+    // 检查控制点是否有效（不能全是零或 NaN）
+    bool has_valid_points = false;
+    for (int i = 0; i < target_ctrl_pts.cols(); ++i) {
+      Eigen::Vector3d pt = target_ctrl_pts.col(i);
+      if (pt.norm() > 1e-3 && std::isfinite(pt(0)) && std::isfinite(pt(1)) && std::isfinite(pt(2))) {
+        has_valid_points = true;
+        break;
+      }
+    }
+    if (!has_valid_points) {
+      ROS_WARN("[kino replan]: Target trajectory control points are invalid (all zeros or NaN). Using fallback method.");
+      return false;
+    }
+    
+    // 关键检查：time_offset 是否在轨迹有效时间范围内
+    double traj_time_sum = swarm_trajs_buf_[id].position_traj_.getTimeSum();
+    if (time_offset < 0.0 || time_offset > traj_time_sum - 1.0) {
+      ROS_WARN("[kino replan]: Time offset (%.2f s) out of valid range [0, %.2f s). Predictor may be updating. Using fallback method.", 
+               time_offset, traj_time_sum - 1.0);
+      return false;
+    }
+    
+    // 所有检查通过，尝试搜索
+    cout << "time offset:" << time_offset << " (valid range: [0, " << traj_time_sum << "])" << endl;
+    if( !kino_path_finder_->search(swarm_trajs_buf_[id].position_traj_, iniState, time_offset ) )
     {
       cout << "Search Fail!" << endl;
       return false;
@@ -221,9 +280,6 @@ namespace ego_planner
     cout << "Search Success!" << endl;
 
     // parameterize the path to bspline
-
-    // double                  ts = pp_.ctrl_pt_dist / pp_.max_vel_;
-    // ts = ts*1.5;
     double ts = kino_path_finder_->getT()/20;
     vector<Eigen::Vector3d> point_set, start_end_derivatives;
     kino_path_finder_->getSamples(ts, point_set, start_end_derivatives);
@@ -575,6 +631,11 @@ namespace ego_planner
   bool EGOPlannerManager::planGlobalTrajWaypoints(const Eigen::Vector3d &start_pos, const Eigen::Vector3d &start_vel, const Eigen::Vector3d &start_acc,
                                                   const std::vector<Eigen::Vector3d> &waypoints, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc)
   {
+    // 检查waypoints是否为空
+    if (waypoints.empty()) {
+      ROS_ERROR("[PlannerManager] planGlobalTrajWaypoints: waypoints vector is empty!");
+      return false;
+    }
 
     // generate global reference trajectory
 
@@ -588,9 +649,12 @@ namespace ego_planner
 
     double total_len = 0;
     total_len += (start_pos - waypoints[0]).norm();
-    for (size_t i = 0; i < waypoints.size() - 1; i++)
-    {
-      total_len += (waypoints[i + 1] - waypoints[i]).norm();
+    // 只有当waypoints.size() > 1时才计算waypoints之间的距离
+    if (waypoints.size() > 1) {
+      for (size_t i = 0; i < waypoints.size() - 1; i++)
+      {
+        total_len += (waypoints[i + 1] - waypoints[i]).norm();
+      }
     }
 
     // insert intermediate points if too far

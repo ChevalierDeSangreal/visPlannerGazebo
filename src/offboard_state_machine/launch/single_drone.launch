@@ -1,0 +1,63 @@
+<launch>
+  <!-- Single drone offboard control for visPlanner -->
+  
+  <arg name="drone_id" default="0"/>
+  
+  <!-- Offboard FSM Node Parameters -->
+  <arg name="takeoff_alt" default="1.5"/>
+  <arg name="takeoff_time" default="3.0"/>
+  <arg name="landing_time" default="5.0"/>
+  <arg name="landing_max_vel" default="0.3"/>
+  <arg name="goto_max_vel" default="0.8"/>
+  <arg name="goto_tol" default="0.1"/>
+  <arg name="end_traj_wait_time" default="5.0"/>
+  
+  <!-- TRAJ control mode: false=Rate Control, true=Position Control -->
+  <arg name="traj_use_position_control" default="false"/>
+  
+  <!-- Optional GOTO target (NAN means no target, will hover after takeoff) -->
+  <arg name="goto_x" default="NAN"/>
+  <arg name="goto_y" default="NAN"/>
+  <arg name="goto_z" default="NAN"/>
+  
+  <!-- Formation parameters (if using multiple drones) -->
+  <arg name="num_drones" default="1"/>
+  <arg name="inward_offset" default="0.0"/>
+  <arg name="payload_offset_x" default="0.0"/>
+  <arg name="payload_offset_y" default="0.0"/>
+  
+  <!-- Set use_sim_time to false (use system time) -->
+  <param name="/use_sim_time" value="false"/>
+  
+  <!-- Offboard FSM Node -->
+  <node name="offboard_fsm_drone_$(arg drone_id)" 
+        pkg="offboard_state_machine" 
+        type="offboard_fsm_node" 
+        output="screen">
+    
+    <param name="drone_id" value="$(arg drone_id)"/>
+    <param name="takeoff_alt" value="$(arg takeoff_alt)"/>
+    <param name="takeoff_time" value="$(arg takeoff_time)"/>
+    <param name="landing_time" value="$(arg landing_time)"/>
+    <param name="landing_max_vel" value="$(arg landing_max_vel)"/>
+    <param name="goto_max_vel" value="$(arg goto_max_vel)"/>
+    <param name="goto_tol" value="$(arg goto_tol)"/>
+    <param name="end_traj_wait_time" value="$(arg end_traj_wait_time)"/>
+    <param name="traj_use_position_control" value="$(arg traj_use_position_control)"/>
+    
+    <param name="goto_x" value="$(arg goto_x)"/>
+    <param name="goto_y" value="$(arg goto_y)"/>
+    <param name="goto_z" value="$(arg goto_z)"/>
+    
+    <param name="num_drones" value="$(arg num_drones)"/>
+    <param name="inward_offset" value="$(arg inward_offset)"/>
+    <param name="payload_offset_x" value="$(arg payload_offset_x)"/>
+    <param name="payload_offset_y" value="$(arg payload_offset_y)"/>
+    
+    <param name="timer_period" value="0.02"/>
+    <param name="alt_tol" value="0.03"/>
+    <param name="goto_accel_time" value="2.0"/>
+  </node>
+  
+</launch>
+

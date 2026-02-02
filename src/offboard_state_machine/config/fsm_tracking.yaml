@@ -1,0 +1,54 @@
+# ==============================================================================
+# 状态机配置文件 - Position Control模式 (TRAJ模式)
+# ==============================================================================
+# 此配置用于 visPlanner 追踪任务（轨迹跟踪position control）
+# 参考 Elastic-Tracker 的 fsm_traj.yaml 配置
+# 
+# 使用方法:
+#   roslaunch px4_test_framework visplanner_tracking.launch
+# ==============================================================================
+
+# ROS1 YAML format (no /** or ros__parameters wrapper needed)
+drone_id: 0
+num_drones: 1
+
+# 控制频率
+timer_period: 0.02  # 50 Hz (状态机控制循环频率)
+
+# 起飞参数
+takeoff_alt: 1.2      # 起飞高度 (米) - 与 Elastic-Tracker 保持一致
+takeoff_time: 10.0    # 起飞时间 (秒) - 与 Elastic-Tracker 保持一致
+climb_rate: 1.0       # 爬升速率 (米/秒，会被 takeoff_alt/takeoff_time 覆盖)
+alt_tol: 0.01         # 高度容差 (米) - 与 Elastic-Tracker 保持一致
+
+# GOTO 参数 (状态机自动飞向目标点)
+goto_x: 1.0           # GOTO 目标点 X (ENU坐标系，米) - 与 Elastic-Tracker 保持一致
+goto_y: 0.0           # GOTO 目标点 Y (ENU坐标系，米)
+goto_z: 1.2           # GOTO 目标点 Z (ENU坐标系，正值表示高度) - 与 Elastic-Tracker 保持一致
+goto_tol: 0.05        # GOTO 到达容差 (米) - 与 Elastic-Tracker 保持一致
+goto_max_vel: 1.0     # GOTO 最大速度 (米/秒) - 与 Elastic-Tracker 保持一致
+goto_accel_time: 3.0  # GOTO 加速时间 (秒) - 与 Elastic-Tracker 保持一致
+
+# 降落参数
+landing_time: 2.0     # 降落时间 (秒) - 与 Elastic-Tracker 保持一致
+landing_max_vel: 0.3  # 降落最大速度 (米/秒)
+
+# TRAJ 状态控制模式 ⭐ 关键参数 ⭐
+# false: Rate control模式 - 外部节点发布VehicleRatesSetpoint (体轴角速率 + 推力)
+# true:  Position control模式 - 外部节点发布TrajectorySetpoint (位置 + 速度)
+# visPlanner 使用 PositionTarget 消息，需要设置为 true
+traj_use_position_control: true
+
+# END_TRAJ 等待时间
+end_traj_wait_time: 5.0  # END_TRAJ状态悬停时间，之后自动降落 (秒)
+
+# 编队参数（单机时可忽略）
+inward_offset: 0.0     # 向内偏移 (米)
+payload_offset_x: 0.0  # 载荷偏移 X (米)
+payload_offset_y: 0.0  # 载荷偏移 Y (米)
+
+# 圆形轨迹参数（仅用于状态机内部生成轨迹，一般不使用）
+circle_radius: 1.4      # 圆形半径 (米)
+circle_radius_traj: 3.0 # 轨迹圆形半径 (米)
+circle_period: 20.0     # 圆周期 (秒)
+

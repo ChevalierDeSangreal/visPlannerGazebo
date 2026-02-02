@@ -409,11 +409,11 @@ int Bezierpredict::TrackingGeneration(
 
     } 
     else if( ierr == 3)
-        ROS_ERROR("Front Bezier Predict: The program is provably infeasible, check the formulation");
+        ROS_DEBUG("Front Bezier Predict: The program is provably infeasible (normal during takeoff/low motion)");
     else if (ierr == 4)
-        ROS_ERROR("Front Bezier Predict: The program is very slow in convergence, may have numerical issue");
+        ROS_WARN("Front Bezier Predict: The program is very slow in convergence, may have numerical issue");
     else
-        ROS_ERROR("Front Bezier Predict: Solver numerical error");
+        ROS_WARN("Front Bezier Predict: Solver numerical error");
     
     ros::Time time_2 = ros::Time::now();
     // ROS_INFO_STREAM("Bezier time consumed:" << (time_2 - time_1).toSec()*1000<<" ms");

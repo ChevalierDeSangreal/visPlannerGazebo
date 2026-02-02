@@ -1,0 +1,164 @@
+<!-- 
+  visPlanner + PX4 跟踪测试（集成状态机框架）
+  
+  完全兼容状态机框架，通过状态机进行位置初始化
+  
+  使用方法：
+  1. 先启动 px4_simulation.launch（PX4 + MAVROS + 目标）
+  2. 启动状态机（自动起飞、悬停）
+  3. 再启动此文件（visPlanner + 轨迹服务器 + 状态监听器）
+  4. 状态机进入 TRAJ 状态时，自动触发 visPlanner 开始跟踪
+  
+  注意：本版本使用 PositionTarget 消息通过 MAVROS 发送到 PX4
+-->
+
+<launch>
+  <arg name="drone_id" default="0"/>
+  <arg name="drone_ns" default="drone0"/>
+  <arg name="use_rviz" default="false" doc="Whether to launch RViz (usually already started by px4_simulation.launch)"/>
+  
+  <!-- 状态机配置：使用 Position Control 模式（与 Elastic-Tracker 一致） -->
+  <arg name="config_file" default="$(find offboard_state_machine)/config/fsm_tracking.yaml"/>
+  
+  <!-- 启动状态机（自动起飞、悬停） -->
+  <include file="$(find px4_test_framework)/launch/single_drone_sitl.launch">
+    <arg name="drone_id" value="$(arg drone_id)"/>
+    <arg name="drone_ns" value="$(arg drone_ns)"/>
+    <arg name="config_file" value="$(arg config_file)"/>
+    <arg name="traj_use_position_control" value="true"/>
+  </include>
+  
+  <group ns="$(arg drone_ns)">
+    <!-- 0. 空地图发布器 - 发布空地图（无障碍物）供planning节点使用 -->
+    <node pkg="px4_test_framework" type="empty_map_publisher_node" name="empty_map_publisher" output="screen">
+      <param name="map_topic" value="gridmap_inflate"/>
+      <param name="publish_rate" value="10.0"/>
+    </node>
+    
+    <!-- 1. visPlanner规划器 - 使用原有实现 -->
+    <!-- 注意：planning.launch 内部使用 nodelet，需要manager -->
+    <node pkg="nodelet" type="nodelet" name="planning_manager" args="manager" output="screen">
+      <param name="num_worker_threads" value="16"/>
+    </node>
+    
+    <!-- 规划器参数 -->
+    <arg name="map_size_x" value="42.0"/>
+    <arg name="map_size_y" value="40.0"/>
+    <arg name="map_size_z" value="5.0"/>
+    <!-- 实际 MAVROS 里程计话题 - 确保使用绝对路径 -->
+    <arg name="odom_topic" value="/$(arg drone_ns)/mavros/local_position/odom"/>
+    
+    <!-- 包含规划器配置 -->
+    <include file="$(find ego_planner)/launch/advanced_param_tracker.xml">
+      <arg name="drone_id" value="$(arg drone_id)"/>
+      <arg name="map_size_x_" value="$(arg map_size_x)"/>
+      <arg name="map_size_y_" value="$(arg map_size_y)"/>
+      <arg name="map_size_z_" value="$(arg map_size_z)"/>
+      <!-- 传递完整的话题路径，并设置 use_full_odom_topic=true 直接使用，不添加前缀 -->
+      <arg name="odometry_topic" value="$(arg odom_topic)"/>
+      <arg name="use_full_odom_topic" value="true"/>
+      <!-- 传递odom话题名称给规划器节点（用于直接订阅，不通过remap） -->
+      <arg name="odom_topic" value="$(arg odom_topic)"/>
+      <arg name="obj_num_set" value="0"/>
+      
+      <!-- 使用空地图，不需要相机或点云 - 使用虚拟话题避免 remap 生成不完整的话题名 -->
+      <!-- 注意：这些话题不会被发布，但可以避免话题名冲突和节点崩溃 -->
+      <arg name="camera_pose_topic" value="virtual_camera_pose"/>
+      <arg name="depth_topic" value="virtual_depth"/>
+      <arg name="cloud_topic" value="virtual_cloud"/>
+      
+      <!-- 相机内参（不使用，但需要提供） -->
+      <arg name="cx" value="321.04638671875"/>
+      <arg name="cy" value="243.44969177246094"/>
+      <arg name="fx" value="387.229248046875"/>
+      <arg name="fy" value="387.229248046875"/>
+      
+      <!-- 最大速度和加速度 -->
+      <arg name="max_vel" value="3.0"/>
+      <arg name="max_acc" value="6.0"/>
+      
+      <!-- 规划视野 -->
+      <arg name="planning_horizon" value="7.5"/>
+      
+      <arg name="use_distinctive_trajs" value="true"/>
+      
+      <!-- 使用 2D Nav Goal 选择目标 -->
+      <arg name="flight_type" value="1"/>
+      
+      <!-- 全局航点 -->
+      <arg name="point_num" value="1"/>
+      <arg name="point0_x" value="0.0"/>
+      <arg name="point0_y" value="0.0"/>
+      <arg name="point0_z" value="1.5"/>
+      
+      <arg name="point1_x" value="0.0"/>
+      <arg name="point1_y" value="15.0"/>
+      <arg name="point1_z" value="1.0"/>
+      
+      <arg name="point2_x" value="15.0"/>
+      <arg name="point2_y" value="0.0"/>
+      <arg name="point2_z" value="1.0"/>
+      
+      <arg name="point3_x" value="0.0"/>
+      <arg name="point3_y" value="-15.0"/>
+      <arg name="point3_z" value="1.0"/>
+      
+      <arg name="point4_x" value="-15.0"/>
+      <arg name="point4_y" value="0.0"/>
+      <arg name="point4_z" value="1.0"/>
+    </include>
+    
+    <!-- 2. 轨迹服务器 - 发布 PositionCommand -->
+    <node pkg="ego_planner" name="drone_$(arg drone_id)_traj_server" type="traj_server" output="screen">
+      <remap from="position_cmd" to="/position_cmd"/>
+      <remap from="~planning/bspline" to="/drone_$(arg drone_id)_planning/bspline"/>
+      <remap from="~odom_sim_for_fov" to="$(arg odom_topic)"/>
+      <remap from="~fov_visual" to="drone_$(arg drone_id)_planning/fov_visual"/>
+      <param name="traj_server/time_forward" value="1.0" type="double"/>
+      <param name="drone_id" value="$(arg drone_id)"/>
+    </node>
+    
+    <!-- 3. PositionCommand 到 MAVROS 转换器 -->
+    <node pkg="px4_test_framework" type="pos_cmd_to_mavros_node" name="pos_cmd_to_mavros" output="screen">
+      <param name="drone_id" value="$(arg drone_id)"/>
+      <param name="pos_cmd_topic" value="/position_cmd"/>
+      <!-- 使用绝对路径，确保发布到正确的MAVROS话题 -->
+      <param name="mavros_topic" value="/$(arg drone_ns)/mavros/setpoint_raw/local"/>
+    </node>
+    
+    <!-- 4. 状态监听器 - 监听状态机状态，自动触发 visPlanner -->
+    <!-- 直接使用目标odom位置作为waypoint，不需要waypoint_generator -->
+    <node pkg="px4_test_framework" type="state_listener_node" name="state_listener" output="screen">
+      <param name="drone_id" value="$(arg drone_id)"/>
+      <param name="trigger_topic" value="/move_base_simple/goal"/>
+      <param name="target_odom_topic" value="/target/odom"/>  <!-- 订阅目标odom -->
+      <param name="waypoint_topic" value="/drone$(arg drone_id)/drone_$(arg drone_id)_waypoint_generator/waypoints"/>  <!-- 直接发布waypoint，替代waypoint_generator -->
+      <param name="traj_duration" value="2500.0"/>  <!-- TRAJ状态持续时间（秒），到时间后自动发送END_TRAJ命令 -->
+    </node>
+  </group>
+  
+  <!-- 目标可视化 -->
+  <node pkg="odom_visualization" name="target_odom_visualization" type="odom_visualization" output="screen">
+    <remap from="~odom" to="/target/odom"/>
+    <param name="robot_scale" value="0.7"/>
+    <param name="color/r" value="1.0"/>
+    <param name="color/g" value="0.0"/>
+    <param name="color/b" value="0.0"/>
+  </node>
+  
+  <!-- 追踪可视化（轨迹、误差、数据记录） -->
+  <node pkg="tracking_visualizer" type="tracking_visualizer_node" name="tracking_visualizer" output="screen">
+    <rosparam file="$(find tracking_visualizer)/config/visualizer_params.yaml" command="load"/>
+    <param name="drone_id" value="$(arg drone_id)"/>
+  </node>
+  
+  <!-- RViz可视化 -->
+  <group if="$(arg use_rviz)">
+    <node pkg="rviz" type="rviz" name="rviz" 
+          args="-d $(find tracking_visualizer)/config/tracking_visualization.rviz" 
+          required="false" 
+          output="screen"/>
+  </group>
+  
+</launch>
+

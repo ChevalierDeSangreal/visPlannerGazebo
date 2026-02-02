@@ -44,7 +44,22 @@ namespace ego_planner
     exec_timer_ = nh.createTimer(ros::Duration(0.01), &EGOReplanFSM::execFSMCallback, this);
     safety_timer_ = nh.createTimer(ros::Duration(0.05), &EGOReplanFSM::checkCollisionCallback, this);
 
-    odom_sub_ = nh.subscribe("odom_world", 1, &EGOReplanFSM::odometryCallback, this, ros::TransportHints().tcpNoDelay());
+    // 直接订阅MAVROS的odom话题（使用全局命名空间，不受节点命名空间影响）
+    std::string odom_topic;
+    if (!nh.getParam("odom_topic", odom_topic) || odom_topic.empty()) {
+      ROS_FATAL("[Planning] Parameter 'odom_topic' is required but not set or empty!");
+      ROS_FATAL("[Planning] Please set it in launch file, e.g., <param name=\"odom_topic\" value=\"/drone0/mavros/local_position/odom\"/>");
+      ros::shutdown();
+      return;
+    }
+    if (odom_topic[0] != '/') {
+      ROS_FATAL("[Planning] odom_topic must be an absolute path (start with '/'), got: %s", odom_topic.c_str());
+      ros::shutdown();
+      return;
+    }
+    ros::NodeHandle nh_global;  // 全局命名空间，不受节点命名空间影响
+    odom_sub_ = nh_global.subscribe(odom_topic, 1, &EGOReplanFSM::odometryCallback, this, ros::TransportHints().tcpNoDelay());
+    ROS_WARN("[Planning] Subscribed to odom topic: %s", odom_topic.c_str());
 
     if (planner_manager_->pp_.drone_id >= 1)
     {
@@ -94,6 +109,12 @@ namespace ego_planner
 
   void EGOReplanFSM::planGlobalTrajbyGivenWps()
   {
+    // 检查waypoint_num_是否有效
+    if (waypoint_num_ <= 0) {
+      ROS_ERROR("[Planning] planGlobalTrajbyGivenWps: waypoint_num_=%d is invalid!", waypoint_num_);
+      return;
+    }
+    
     std::vector<Eigen::Vector3d> wps(waypoint_num_);
     for (int i = 0; i < waypoint_num_; i++)
     {
@@ -155,13 +176,21 @@ namespace ego_planner
 
   void EGOReplanFSM::waypointCallback(const nav_msgs::PathConstPtr &msg)
   {
-    if (msg->poses[0].pose.position.z < -0.1)
+    // 检查waypoint消息是否有效
+    if (msg->poses.empty()) {
+      ROS_WARN("[Planning] Received empty waypoint message");
       return;
+    }
+    
+    if (msg->poses[0].pose.position.z < -0.1) {
+      ROS_WARN("[Planning] Invalid waypoint z position: %.2f", msg->poses[0].pose.position.z);
+      return;
+    }
 
     // cout << "Triggered!" << endl;
 
     // the tracker should be triggered by the target
-    return;
+    // return;  // 注释掉这个return，让规划器能够处理waypoint
     // trigger_ = true;
     init_pt_ = odom_pos_;
 
@@ -277,21 +306,15 @@ namespace ego_planner
     end_p(1) = msg->pos_pts[size_pos].y;
     end_p(2) = msg->pos_pts[size_pos].z; 
 
-    static int predict_int = 0;
-    if( predict_int < 2 )
-    {
-      predict_int++;
-      return;
-    }
+    // 移除 predict_int 计数器，确保数据立即填充
+    // 之前的逻辑会忽略前两次 B-spline 消息，导致数据延迟
+    // static int predict_int = 0;
+    // if( predict_int < 2 )
+    // {
+    //   predict_int++;
+    //   return;
+    // }
 
-    if( (start_p - end_p).norm() < 0.5 )
-    {
-      changeFSMExecState(WAIT_TARGET, "PREDICT_CHECK");
-      ROS_WARN("Already for tracking!");
-      return;
-    }
-
-    cout << "Triggered!Predict!" << endl;
 
     // constexpr double time_step = 0.01;
     // double t_cur = 0;
@@ -343,11 +366,13 @@ namespace ego_planner
 
     predict_vel_ = planner_manager_->swarm_trajs_buf_[id].position_traj_.getDerivative().evaluateDeBoorT(planner_manager_->swarm_trajs_buf_[id].duration_/2);
     
-    // wxx
-    if (exec_state_ == WAIT_TARGET)
-      changeFSMExecState(GEN_NEW_TRAJ, "PREDICT_CHECK");
-    else if (exec_state_ == EXEC_TRAJ)
+    // 核心：只有在EXEC_TRAJ状态（对应TRAJ飞行模式）下才触发规划
+    // 在其他状态下只填充数据，不触发状态转换
+    if (exec_state_ == EXEC_TRAJ)
+    {
       changeFSMExecState(REPLAN_TRAJ, "PREDICT_CHECK");
+    }
+    // 静默填充数据，不打印任何信息
 
   }
 
@@ -841,15 +866,17 @@ namespace ego_planner
     static int count_just_see = 0;
     printf("\033[47;30m\n[drone replan %d start]==============================================\033[0m\n", count_just_see++);
 
-    bool kinodynamic_success =
-        planner_manager_->kinodynamicReplan(start_pt_, start_vel_, start_acc_, local_target_pt_, local_target_vel_);
-
-    if(!kinodynamic_success)
-        kinodynamic_success = planner_manager_->reboundReplan(start_pt_, start_vel_, start_acc_, local_target_pt_, local_target_vel_, (have_new_target_ || flag_use_poly_init), flag_randomPolyTraj);
+    // Tracker模式：直接使用reboundReplan，不使用kinodynamicReplan
+    // 原因：kinodynamicReplan需要kino_path_finder_，但tracker（drone_id != 0）没有初始化它
+    bool kinodynamic_success = planner_manager_->reboundReplan(
+        start_pt_, start_vel_, start_acc_, 
+        local_target_pt_, local_target_vel_, 
+        (have_new_target_ || flag_use_poly_init), 
+        flag_randomPolyTraj);
     
     have_new_target_ = false;
 
-    cout << "kinodynamic A*=" << kinodynamic_success << endl;
+    cout << "replan_success=" << kinodynamic_success << endl;
 
     bool yaw_plan_success = false;
     if (kinodynamic_success)

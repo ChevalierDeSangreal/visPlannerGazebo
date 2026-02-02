@@ -13,7 +13,6 @@ find_package(catkin REQUIRED
   COMPONENTS
     roscpp
     sensor_msgs
-    roslint
     cv_bridge
     message_filters
 )
@@ -127,4 +126,4 @@ install(
 ## Static code analysis ##
 ##########################
 
-roslint_cpp()
+# roslint_cpp()  # Commented out - roslint is optional

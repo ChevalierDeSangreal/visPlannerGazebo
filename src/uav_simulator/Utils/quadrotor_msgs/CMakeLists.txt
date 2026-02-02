@@ -48,6 +48,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   nav_msgs
   geometry_msgs
+  std_msgs
   message_generation
 )
 
@@ -74,12 +75,14 @@ add_message_files(
   Odometry.msg
   PolynomialTrajectory.msg
   LQRTrajectory.msg
+  OccMap3d.msg
 )
 
 generate_messages(
     DEPENDENCIES
     geometry_msgs
     nav_msgs
+    std_msgs
 )
 
 catkin_package(

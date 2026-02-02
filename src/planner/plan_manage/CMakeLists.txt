@@ -24,6 +24,10 @@ find_package(catkin REQUIRED COMPONENTS
   bezier_predict
 )
 
+# OOQP 库路径（bezier_predict依赖）
+set(OOQP_ROOT $ENV{HOME}/ooqp_install)
+set(OOQP_LIB_DIR ${OOQP_ROOT}/lib)
+
 # catkin_package(CATKIN_DEPENDS message_runtime)
 catkin_package(
  INCLUDE_DIRS include
@@ -48,6 +52,14 @@ add_executable(ego_planner_node_target
   )
 target_link_libraries(ego_planner_node_target 
   ${catkin_LIBRARIES}
+  ${OOQP_LIB_DIR}/libooqpgensparse.a
+  ${OOQP_LIB_DIR}/libooqpsparse.a
+  ${OOQP_LIB_DIR}/libooqpgondzio.a
+  ${OOQP_LIB_DIR}/libooqpbase.a
+  ${OOQP_LIB_DIR}/libma27.a
+  blas
+  lapack
+  gfortran
   )
 
 add_executable(ego_planner_node_tracker
@@ -57,6 +69,14 @@ add_executable(ego_planner_node_tracker
   )
 target_link_libraries(ego_planner_node_tracker 
   ${catkin_LIBRARIES}
+  ${OOQP_LIB_DIR}/libooqpgensparse.a
+  ${OOQP_LIB_DIR}/libooqpsparse.a
+  ${OOQP_LIB_DIR}/libooqpgondzio.a
+  ${OOQP_LIB_DIR}/libooqpbase.a
+  ${OOQP_LIB_DIR}/libma27.a
+  blas
+  lapack
+  gfortran
   )
 #add_dependencies(ego_planner_node ${${PROJECT_NAME}_EXPORTED_TARGETS})
 

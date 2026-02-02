@@ -1,0 +1,68 @@
+<launch>
+  <!-- ========================================================================== -->
+  <!-- visPlanner 完整启动文件 - 包含状态机、可视化和规划器 -->
+  <!-- ========================================================================== -->
+  
+  <arg name="drone_id" default="0"/>
+  <arg name="use_rviz" default="true"/>
+  <arg name="use_tracking_viz" default="true"/>
+  
+  <!-- ========================================================================== -->
+  <!-- 1. RViz 可视化（可选） -->
+  <!-- ========================================================================== -->
+  <group if="$(arg use_rviz)">
+    <include file="$(find ego_planner)/launch/rviz.launch"/>
+  </group>
+  
+  <!-- ========================================================================== -->
+  <!-- 2. 状态机控制 -->
+  <!-- ========================================================================== -->
+  <include file="$(find offboard_state_machine)/launch/single_drone.launch">
+    <arg name="drone_id" value="$(arg drone_id)"/>
+    <arg name="takeoff_alt" value="1.5"/>
+    <arg name="takeoff_time" value="5.0"/>
+    <arg name="landing_time" value="5.0"/>
+    <arg name="landing_max_vel" value="0.3"/>
+    <arg name="goto_max_vel" value="0.8"/>
+    <arg name="end_traj_wait_time" value="5.0"/>
+  </include>
+  
+  <!-- ========================================================================== -->
+  <!-- 3. 追踪可视化（可选） -->
+  <!-- ========================================================================== -->
+  <group if="$(arg use_tracking_viz)">
+    <include file="$(find tracking_visualizer)/launch/tracking_visualizer.launch">
+      <arg name="drone_id" value="$(arg drone_id)"/>
+    </include>
+  </group>
+  
+  <!-- ========================================================================== -->
+  <!-- 4. visPlanner 规划器 -->
+  <!-- ========================================================================== -->
+  <include file="$(find ego_planner)/launch/tracking.launch"/>
+  
+  <!-- ========================================================================== -->
+  <!-- 使用说明 -->
+  <!-- ========================================================================== -->
+  <!-- 
+  启动方法：
+    roslaunch offboard_state_machine visplanner_full.launch
+  
+  完整流程：
+    1. 系统自动启动，无人机自动起飞并悬停
+    2. 在 RViz 中使用 3D Nav Goal 设置目标位置
+    3. 切换到追踪模式：
+       rostopic pub /state/command_drone_0 std_msgs/Int32 "data: 5"
+    4. 观察追踪效果
+    5. 结束追踪：
+       rostopic pub /state/command_drone_0 std_msgs/Int32 "data: 6"
+    6. 无人机自动降落
+  
+  可选参数：
+    use_rviz:=false          # 不启动 RViz
+    use_tracking_viz:=false  # 不启动追踪可视化
+    drone_id:=1              # 使用不同的无人机 ID
+  -->
+  
+</launch>
+

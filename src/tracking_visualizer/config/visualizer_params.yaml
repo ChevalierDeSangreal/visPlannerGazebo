@@ -1,0 +1,39 @@
+# 追踪可视化器参数配置
+
+# 无人机ID
+drone_id: 0
+
+# 轨迹记录参数
+max_trajectory_points: 2000   # 最大轨迹点数（历史记录）
+visualization_rate: 10.0      # 可视化更新频率 [Hz]
+
+# 数据保存
+save_to_file: true            # 是否保存数据到CSV文件（默认启用）
+output_file_path: "/tmp/elastic_tracker_tracking_data.csv"  # 输出文件路径
+
+# 记录选项
+only_record_in_traj: true     # 是否只在TRAJ状态时记录数据（推荐为true）
+
+# 话题配置
+drone_topic: "/drone0/mavros/local_position/odom"  # 无人机里程计话题
+target_topic: "/target/odom"                       # 目标里程计话题
+
+# 可视化颜色配置 (RGBA, 范围 0.0-1.0)
+drone_color:
+  r: 0.0
+  g: 0.0
+  b: 1.0  # 蓝色
+  a: 1.0
+
+target_color:
+  r: 1.0  # 红色
+  g: 0.0
+  b: 0.0
+  a: 1.0
+
+error_color:
+  r: 1.0  # 黄色
+  g: 1.0
+  b: 0.0
+  a: 0.7
+

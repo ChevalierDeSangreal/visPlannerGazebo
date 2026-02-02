@@ -1,0 +1,37 @@
+# 目标轨迹发布器参数配置
+# 参考 Elastic-Tracker 的配置
+# 支持同时发布多种格式，适配不同的控制方法
+
+# 轨迹模式
+# 0: STATIC (静止)
+# 1: CIRCLE (圆周运动)
+# 2: FIGURE_EIGHT (8字运动)
+mode: 1
+
+# 发布频率
+timer_period: 0.02     # 发布周期 [s] (50Hz)
+
+# 话题配置
+# visPlanner 需要 nav_msgs/Odometry 类型的目标话题
+elastic_target_topic: "/target/odom"  # visPlanner目标话题名
+# 同时自动发布到 /target/position 和 /target/velocity
+
+# === 静止模式参数 ===
+static_x: 2.0          # 静止位置X [m]
+static_y: 0.0          # 静止位置Y [m]
+static_z: 1.5          # 静止位置Z [m]
+
+# === 圆周模式参数 ===
+circle_radius: 2.0     # 圆半径 [m]
+circle_center_x: 0.0   # 圆心X坐标 [m]
+circle_center_y: 0.0   # 圆心Y坐标 [m]
+circle_center_z: 1.5   # 圆心Z坐标 [m]
+circle_duration: 3.0  # 单圈时间 [s]
+circle_init_phase: 0.0 # 初始相位 [rad]
+circle_times: 1        # 圆圈数量
+
+# === 运动参数 ===
+ramp_up_time: 3.0      # 加速时间 [s]
+ramp_down_time: 3.0    # 减速时间 [s]
+stationary_time: 3.0   # 初始静止时间 [s]
+

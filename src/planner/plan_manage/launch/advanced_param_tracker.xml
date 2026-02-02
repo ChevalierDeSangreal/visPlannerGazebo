@@ -4,6 +4,10 @@
   <arg name="map_size_z_"/>
 
   <arg name="odometry_topic"/>
+  <!-- 如果 use_full_odom_topic 为 true，odometry_topic 应该是完整路径（如 /drone0/mavros/local_position/odom）
+       否则会添加 /drone_$(arg drone_id)_ 前缀 -->
+  <arg name="use_full_odom_topic" default="false"/>
+  <arg name="odom_topic" default=""/>
   <arg name="camera_pose_topic"/>
   <arg name="depth_topic"/>
   <arg name="cloud_topic"/>
@@ -49,24 +53,31 @@
   <!-- <node pkg="ego_planner" name="drone_$(arg drone_id)_ego_planner_node" type="ego_planner_node_tracker" output="screen" launch-prefix="valgrind"> -->
   <node pkg="ego_planner" name="drone_$(arg drone_id)_ego_planner_node" type="ego_planner_node_tracker" output="screen">
   
-    <remap from="~odom_world" to="/drone_$(arg drone_id)_$(arg odometry_topic)"/>
+    <!-- 里程计话题 remap -->
+    <!-- 如果 use_full_odom_topic=true，odometry_topic 应该是完整路径（如 /drone0/mavros/local_position/odom） -->
+    <!-- 如果 use_full_odom_topic=false，会在调用时添加 /drone_X_ 前缀 -->
+    <remap from="~odom_world" to="$(arg odometry_topic)"/>
+    <remap from="~grid_map/odom" to="$(arg odometry_topic)"/>
+    
     <remap from="~planning/bspline" to = "/drone_$(arg drone_id)_planning/bspline"/>
     <remap from="~fov_visual" to="drone_$(arg drone_id)_planning/fov_visual"/>
     
     <remap from="~planning/data_display" to = "/drone_$(arg drone_id)_planning/data_display"/>
     <remap from="~planning/broadcast_bspline_from_planner" to = "/broadcast_bspline"/>
     <remap from="~planning/broadcast_bspline_to_planner" to = "/broadcast_bspline"/>
-
-    <remap from="~grid_map/odom" to="/drone_$(arg drone_id)_$(arg odometry_topic)"/>
     <remap from="~grid_map/cloud" to="/drone_$(arg drone_id)_$(arg cloud_topic)"/>
     <remap from="~grid_map/pose"   to = "/drone_$(arg drone_id)_$(arg camera_pose_topic)"/> 
     <remap from="~grid_map/depth" to = "/drone_$(arg drone_id)_$(arg depth_topic)"/>
     <remap from="~grid_map/depth" to = "/drone_$(arg drone_id)_$(arg depth_topic)"/>
 
-    <remap from="~waypoint_generator/waypoints" to = "/drone_$(arg drone_id)_waypoint_generator/waypoints"/>
+    <!-- waypoint_generator在/drone0命名空间下，实际发布的话题是/drone0/drone_0_waypoint_generator/waypoints -->
+    <remap from="~waypoint_generator/waypoints" to = "/drone$(arg drone_id)/drone_$(arg drone_id)_waypoint_generator/waypoints"/>
+    <!-- remap trigger话题：state_listener发布到/move_base_simple/goal，规划器订阅traj_start_trigger -->
+    <remap from="~traj_start_trigger" to="/move_base_simple/goal"/>
 
-
-
+    <!-- 传递odom话题名称给节点（用于直接订阅，不通过remap） -->
+    <!-- 如果odom_topic参数为空，使用odometry_topic作为默认值 -->
+    <param name="odom_topic" value="$(arg odometry_topic)"/>
 
     <!-- planning fsm -->
     <param name="fsm/flight_type" value="$(arg flight_type)" type="int"/>
@@ -194,15 +205,16 @@
     <param name="bspline/limit_ratio" value="1.1" type="double"/>
 
   <!-- bezier prediction -->
-    <param name="bezier_predict/simulation" value="true" type="bool"/>
-    <!-- simulation -->
-    <remap from="~simulator_target_odom" to="/drone_1_visual_slam/odom"/>
+    <!-- 关键修改：使用 realworld 模式，让 Predictor 每次收到 odom 都更新 B-spline -->
+    <!-- 这样可以保持高频率更新，避免 time_offset 过大导致越界 -->
+    <param name="bezier_predict/simulation" value="false" type="bool"/>
+    <!-- realworld 模式：连接到 target_publisher 发布的目标话题 -->
+    <remap from="~realworld_target_odom" to="/target/odom"/>
+    <!-- simulation 模式参数（不使用，但保留配置） -->
     <param name="bezier_predict/simulation_fov" value="90" type="double"/>
     <param name="bezier_predict/simulation_fov_max_dist" value="7.0" type="double"/>
     <param name="bezier_predict/simulation_fov_min_dist" value="0.5" type="double"/>
     <param name="bezier_predict/freq_donw" value="15" type="int"/>
-    <!-- real world -->
-    <remap from="~realworld_target_odom" to="/apriltags2_ros_continuous_node/april_detected_odom"/>
 
 
   </node>
