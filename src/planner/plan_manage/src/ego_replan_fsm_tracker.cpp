@@ -12,6 +12,8 @@ namespace ego_planner
     have_odom_ = false;
     have_recv_pre_agent_ = false;
     receive_target_traj_ = false;
+    bspline_received_ = false;
+    last_bspline_time_ = ros::Time(0);
 
     /*  fsm param  */
     nh.param("fsm/flight_type", target_type_, -1);
@@ -22,6 +24,9 @@ namespace ego_planner
     nh.param("fsm/emergency_time", emergency_time_, 1.0);
     nh.param("fsm/realworld_experiment", flag_realworld_experiment_, false);
     nh.param("fsm/fail_safe", enable_fail_safe_, true);
+    nh.param("fsm/bspline_timeout", bspline_timeout_, 2.0);  // 默认2秒超时
+    
+    ROS_INFO("[FSM] B-spline timeout: %.1f seconds (will exit TRAJ if no new B-spline received)", bspline_timeout_);
 
     have_trigger_ = !flag_realworld_experiment_;
 
@@ -74,6 +79,11 @@ namespace ego_planner
 
     bspline_pub_ = nh.advertise<traj_utils::Bspline>("planning/bspline", 10);
     data_disp_pub_ = nh.advertise<traj_utils::DataDisp>("planning/data_display", 100);
+    
+    // 状态命令发布器 - 用于通知 offboard_state_machine
+    string state_cmd_topic = "/state/command_drone_" + std::to_string(planner_manager_->pp_.drone_id);
+    state_cmd_pub_ = nh.advertise<std_msgs::Int32>(state_cmd_topic, 10);
+    ROS_INFO("[FSM] State command publisher initialized: %s", state_cmd_topic.c_str());
 
     // for visual traj
     pos_list_pub_ = nh.advertise<visualization_msgs::Marker>("traj_pos_list", 2);
@@ -257,6 +267,13 @@ namespace ego_planner
     size_t id = msg->drone_id;
     if ( (int)id == planner_manager_->pp_.drone_id )
       return;
+    
+    // 更新 B-spline 接收时间（用于超时检测）
+    last_bspline_time_ = ros::Time::now();
+    if (!bspline_received_) {
+      bspline_received_ = true;
+      ROS_INFO("[FSM] First B-spline received from target (drone_id=%zu)", id);
+    }
 
     /* Fill up the buffer */
     if ( planner_manager_->swarm_trajs_buf_.size() <= id )
@@ -646,6 +663,27 @@ namespace ego_planner
 
     case EXEC_TRAJ:
     {
+      // 检查 B-spline 是否超时（目标停止发布）
+      if (bspline_received_ && bspline_timeout_ > 0) {
+        double time_since_last_bspline = (ros::Time::now() - last_bspline_time_).toSec();
+        if (time_since_last_bspline > bspline_timeout_) {
+          ROS_WARN("[FSM] ⏱️  B-spline timeout detected (%.1f s since last update, threshold: %.1f s)", 
+                   time_since_last_bspline, bspline_timeout_);
+          ROS_WARN("[FSM] 🛑 Target stopped publishing, sending END_TRAJ command to state machine");
+          
+          // 发送 END_TRAJ 命令给 offboard_state_machine (状态 6)
+          std_msgs::Int32 cmd_msg;
+          cmd_msg.data = 6;  // END_TRAJ state
+          state_cmd_pub_.publish(cmd_msg);
+          ROS_INFO("[FSM] Sent END_TRAJ command (state=6) to offboard_state_machine");
+          
+          have_target_ = false;
+          bspline_received_ = false;  // 重置标志
+          changeFSMExecState(WAIT_TARGET, "BSPLINE_TIMEOUT");
+          goto force_return;
+        }
+      }
+      
       /* determine if need to replan */
       LocalTrajData *info = &planner_manager_->local_data_;
       ros::Time time_now = ros::Time::now();

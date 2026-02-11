@@ -30,7 +30,8 @@ private:
   enum class TrajectoryMode {
     STATIC = 0,      // 静止
     CIRCLE = 1,      // 圆周运动
-    FIGURE_EIGHT = 2 // 8字运动
+    FIGURE_EIGHT = 2,// 8字运动
+    D_SHAPE = 3      // D型运动
   };
   
   void timer_callback(const ros::TimerEvent& event);
@@ -38,10 +39,32 @@ private:
   void generate_static_trajectory(double t);
   void generate_circular_trajectory(double t);
   void generate_figure_eight_trajectory(double t);
+  void generate_dshape_trajectory(double t);
   
   double calculate_theta_at_time(double t);
   double calculate_angular_velocity_at_time(double t);
+  double calculate_normalized_parameter_at_time(double t);
+  double calculate_parameter_velocity_at_time(double t);
   double calculate_effective_duration();
+  
+  /**
+   * @brief Calculate arc length of a cubic Bezier curve using numerical integration
+   */
+  double calculate_bezier_arc_length(double P0x, double P0y, double P1x, double P1y,
+                                     double P2x, double P2y, double P3x, double P3y,
+                                     double t_end = 1.0);
+  
+  /**
+   * @brief Find parameter t on Bezier curve given target arc length from start
+   */
+  double find_bezier_parameter_from_arc_length(double target_length,
+                                                double P0x, double P0y, double P1x, double P1y,
+                                                double P2x, double P2y, double P3x, double P3y);
+  
+  /**
+   * @brief Pre-calculate D-shape segment arc lengths
+   */
+  void calculate_dshape_segment_lengths();
   
   void publish_target_odom(double x, double y, double z, 
                            double vx, double vy, double vz);
@@ -81,10 +104,23 @@ private:
   double circle_init_phase_;      // 初始相位 [rad]
   int circle_times_;              // 圆圈数量
   
+  // 通用轨迹参数（用于8字和D型）
+  double trajectory_size_;        // 轨迹尺寸 [m]
+  double trajectory_center_x_;    // 轨迹中心X [m]
+  double trajectory_center_y_;    // 轨迹中心Y [m]
+  double trajectory_center_z_;    // 轨迹中心Z [m]
+  double trajectory_duration_;    // 轨迹周期 [s] (auto-calculated for D-shape)
+  int trajectory_times_;          // 轨迹循环次数
+  
   // 运动参数
-  double ramp_up_time_;           // 加速时间 [s]
-  double ramp_down_time_;         // 减速时间 [s]
+  double ramp_up_time_;           // 加速时间 [s] (auto-calculated for D-shape)
+  double ramp_down_time_;         // 减速时间 [s] (auto-calculated for D-shape)
   double stationary_time_;        // 静止时间 [s]
+  
+  // Velocity-based parameters for D-shape trajectory
+  double max_linear_velocity_;    // 最大线速度 [m/s] (for D-shape)
+  double linear_acceleration_;    // 线加速度/减速度 [m/s²] (for D-shape)
+  double motion_duration_;        // 总运动时长 [s]，-1表示无限制
   
   // 计算得到的参数
   double effective_duration_;     // 有效单圈时间
@@ -92,11 +128,18 @@ private:
   double angular_acceleration_;   // 角加速度
   double total_constant_duration_;// 匀速运动总时间
   
+  // D-shape弧长跟踪参数（NEW: 替代基于时间的比例）
+  double dshape_total_arc_length_;     // D型轨迹的总弧长 [m]
+  double dshape_segment_lengths_[4];   // 每个Bezier段的弧长 [m]
+  double dshape_cumulative_lengths_[5]; // 累积弧长 [0, L0, L0+L1, ..., total]
+  double dshape_current_arc_length_;   // 当前已行进的弧长 [m] (用于弧长跟踪)
+  
   // 状态变量
   bool trajectory_started_;
   ros::Time start_time_;
   std::chrono::steady_clock::time_point start_time_system_;
   bool use_sim_time_;
+  bool motion_stopped_;           // 运动是否已停止（时长到达后）
   
   // 状态机相关
   int drone_id_;                      // 无人机ID

@@ -8,6 +8,7 @@
 #include <sensor_msgs/Imu.h>
 #include <ros/ros.h>
 #include <std_msgs/Empty.h>
+#include <std_msgs/Int32.h>
 #include <vector>
 #include <visualization_msgs/Marker.h>
 
@@ -68,6 +69,11 @@ namespace ego_planner
     bool receive_target_traj_;
     FSM_EXEC_STATE exec_state_;
     int continously_called_times_{0};
+    
+    /* target B-spline timeout detection */
+    ros::Time last_bspline_time_;    // 最后一次接收到 B-spline 的时间
+    bool bspline_received_;          // 是否接收到过 B-spline
+    double bspline_timeout_;         // B-spline 超时时间（秒）
 
     Eigen::Vector3d odom_pos_, odom_vel_, odom_acc_; // odometry state
     Eigen::Quaterniond odom_orient_;
@@ -86,6 +92,7 @@ namespace ego_planner
     ros::Timer exec_timer_, safety_timer_;
     ros::Subscriber waypoint_sub_, odom_sub_, swarm_trajs_sub_, broadcast_bspline_sub_, trigger_sub_;
     ros::Publisher replan_pub_, new_pub_, bspline_pub_, data_disp_pub_, swarm_trajs_pub_, broadcast_bspline_pub_;
+    ros::Publisher state_cmd_pub_;  // 发布状态命令给 offboard_state_machine
 
     ros::Publisher pos_list_pub_, cpt_list_pub_, yaw_list_pub_, attract_list_pub_, attract_score_list_pub_, debug_cpt_list_pub_, gradient_list_pub_, pk_grad_list_pub_;
     ros::Publisher new_predict_list_pub_;

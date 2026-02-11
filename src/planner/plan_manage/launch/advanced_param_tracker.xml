@@ -21,8 +21,8 @@
   <arg name="max_acc"/>
   <arg name="planning_horizon"/>
 
-  <arg name="attract_max_dist_threshold" value="4.0" /> 
-  <arg name="attract_min_dist_threshold" value="3.0" /> 
+  <arg name="attract_max_dist_threshold" value="1.5" /> 
+  <arg name="attract_min_dist_threshold" value="0.8" /> 
 
   <arg name="point_num"/>
   <arg name="point0_x"/>
@@ -88,6 +88,9 @@
     <param name="fsm/emergency_time" value="1.0" type="double"/>
     <param name="fsm/realworld_experiment" value="false"/>
     <param name="fsm/fail_safe" value="true"/>
+    
+    <!-- B-spline 超时检测参数：如果超过此时间未收到新的 B-spline，认为目标停止，自动退出 TRAJ 状态 -->
+    <param name="fsm/bspline_timeout" value="2.0" type="double"/>
 
     <param name="fsm/waypoint_num" value="$(arg point_num)" type="int"/>
     <param name="fsm/waypoint0_x" value="$(arg point0_x)" type="double"/>
@@ -184,8 +187,8 @@
     <param name="optimization/max_vel" value="$(arg max_vel)" type="double"/>
     <param name="optimization/max_acc" value="$(arg max_acc)" type="double"/>
 
-    <param name="optimization/best_attract_max_dist" value="3.5" type="double"/>
-    <param name="optimization/best_attract_min_dist" value="2.5" type="double"/>
+    <param name="optimization/best_attract_max_dist" value="1.2" type="double"/>
+    <param name="optimization/best_attract_min_dist" value="0.8" type="double"/>
     <param name="optimization/attract_max_dist_threshold" value="$(arg attract_max_dist_threshold)" type="double"/>
     <param name="optimization/attract_min_dist_threshold" value="$(arg attract_min_dist_threshold)" type="double"/>
 

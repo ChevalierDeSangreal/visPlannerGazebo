@@ -77,7 +77,7 @@ private:
   std::string drone_topic_;        // 无人机话题
   std::string target_topic_;       // 目标话题
   int drone_id_;                   // 无人机ID
-  bool only_record_in_traj_;        // 是否只在TRAJ状态记录数据
+  bool only_record_in_traj_;       // 是否只在TRAJ状态记录数据
   
   // 状态机状态
   enum class FsmState {

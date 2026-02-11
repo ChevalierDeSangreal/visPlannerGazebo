@@ -1,0 +1,44 @@
+# 目标轨迹发布器参数配置 - Figure-8 (八字轨迹)
+# 支持同时发布多种格式，适配不同的控制方法
+
+# 轨迹模式
+# 0: STATIC (静止)
+# 1: CIRCLE (圆周运动)
+# 2: FIGURE_EIGHT (8字运动)
+# 3: D_SHAPE (D型运动)
+mode: 2  # Figure-8
+
+# 发布频率
+timer_period: 0.02     # 发布周期 [s] (50Hz)
+
+# 话题配置
+elastic_target_topic: "/target/odom"  # visPlanner目标话题名
+
+# === 静止模式参数 ===
+static_x: 2.0
+static_y: 0.0
+static_z: 1.5
+
+# === 通用轨迹参数（用于8字和D型）===
+# NOTE: Drone GOTO position is at trajectory_center
+# Trajectory is offset +1m in x-direction, so starting point is 1m ahead of drone
+trajectory_size: 2.0         # 轨迹尺寸 [m] (scale parameter for figure-8)
+trajectory_center_x: 0.0     # 轨迹中心X [m] - 无人机GOTO位置
+trajectory_center_y: 0.0     # 轨迹中心Y [m]
+trajectory_center_z: 1.2     # 轨迹中心Z [m] (与RealFlight_ros一致)
+trajectory_duration: 6.0     # 单周期时间 [s] (与RealFlight_ros一致)
+trajectory_times: 1          # 循环次数
+
+# Initial phase (not used for figure8, but kept for compatibility)
+circle_init_phase: 0.0       # Initial phase angle [rad]
+
+# === 运动参数 ===
+ramp_up_time: 3.0      # 加速时间 [s] (与RealFlight_ros一致)
+ramp_down_time: 3.0    # 减速时间 [s] (与RealFlight_ros一致)
+stationary_time: 3.0   # 初始静止时间 [s]
+                             # Initial position: 1m in front of trajectory center
+motion_duration: -1.0  # 总运动时长 [s]，-1表示无限制（visPlanner特有参数）
+
+# Control parameters
+max_speed: -1.0              # Maximum linear speed limit [m/s] (negative = no limit)
+

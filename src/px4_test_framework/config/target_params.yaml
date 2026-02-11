@@ -21,17 +21,35 @@ static_x: 2.0          # 静止位置X [m]
 static_y: 0.0          # 静止位置Y [m]
 static_z: 1.5          # 静止位置Z [m]
 
+# === 通用轨迹参数（用于8字和D型，圆形轨迹也保留以保持一致性）===
+# NOTE: Drone GOTO position is at trajectory_center
+# Target starting point should be 1m in front of drone (at trajectory_center + [1.0, 0, 0])
+trajectory_size: 2.0         # Trajectory size [m] (radius for circle, scale for figure8/d_shape)
+trajectory_center_x: 0.0     # Trajectory center East position (ENU) [m] - Drone GOTO position
+trajectory_center_y: 0.0     # Trajectory center North position (ENU) [m]
+trajectory_center_z: 1.2     # Trajectory center Up position (ENU, positive is up) [m]
+trajectory_times: 1          # Number of trajectory cycles
+trajectory_duration: 6.0     # Single trajectory cycle duration [s]
+
 # === 圆周模式参数 ===
-circle_radius: 2.0     # 圆半径 [m]
-circle_center_x: 0.0   # 圆心X坐标 [m]
-circle_center_y: 0.0   # 圆心Y坐标 [m]
-circle_center_z: 1.5   # 圆心Z坐标 [m]
-circle_duration: 3.0  # 单圈时间 [s]
-circle_init_phase: 0.0 # 初始相位 [rad]
-circle_times: 1        # 圆圈数量
+# Circle center adjusted so starting point (with init_phase=0) is 1m ahead of drone
+# Starting point = circle_center + [R, 0] = trajectory_center + [1, 0]
+# So: circle_center = trajectory_center - [R-1, 0] = [0, 0] - [1, 0] = [-1, 0]
+circle_radius: 2.0           # Circular trajectory radius [m]
+circle_center_x: -1.0        # Circle center East position (ENU) [m] - offset to make start at drone+1m
+circle_center_y: 0.0         # Circle center North position (ENU) [m]
+circle_center_z: 1.2         # Circle center Up position (ENU, positive is up) [m]
+circle_init_phase: 0.0       # Initial phase angle [rad] - 0 means start at [R, 0] relative to center
+circle_times: 1              # Number of circles
+circle_duration: 6.0         # Single circle duration [s]
 
 # === 运动参数 ===
-ramp_up_time: 3.0      # 加速时间 [s]
-ramp_down_time: 3.0    # 减速时间 [s]
-stationary_time: 3.0   # 初始静止时间 [s]
+ramp_up_time: 3.0            # Acceleration time [s]
+ramp_down_time: 3.0          # Deceleration time [s]
+stationary_time: 3.0         # Initial stationary time [s] (time to stay at initial position before motion starts)
+                             # Initial position is 1m in front of trajectory center (along +x direction in ENU)
+motion_duration: -1.0        # 总运动时长 [s]，-1 表示无限制（超过此时长后停止发布，visPlanner特有参数）
+
+# Control parameters
+max_speed: -1.0              # Maximum linear speed limit [m/s] (negative value means no limit)
 

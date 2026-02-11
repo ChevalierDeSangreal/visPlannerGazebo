@@ -108,6 +108,7 @@ TrackingVisualizerNode::TrackingVisualizerNode(ros::NodeHandle& nh,
   ROS_INFO("Visualization rate: %.1f Hz", visualization_rate_);
   ROS_INFO("Save to file: %s", save_to_file_ ? "Yes" : "No");
   ROS_INFO("Only record in TRAJ state: %s", only_record_in_traj_ ? "Yes" : "No");
+  ROS_INFO("⏱️  Will automatically stop recording when exiting TRAJ state");
   ROS_INFO("Tracking visualizer initialized!");
 }
 

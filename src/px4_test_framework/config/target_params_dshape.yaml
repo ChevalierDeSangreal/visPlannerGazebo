@@ -1,0 +1,48 @@
+# 目标轨迹发布器参数配置 - D-shape (D型轨迹)
+# 支持同时发布多种格式，适配不同的控制方法
+
+# 轨迹模式
+# 0: STATIC (静止)
+# 1: CIRCLE (圆周运动)
+# 2: FIGURE_EIGHT (8字运动)
+# 3: D_SHAPE (D型运动)
+mode: 3  # D-shape
+
+# 发布频率
+timer_period: 0.02     # 发布周期 [s] (50Hz)
+
+# 话题配置
+elastic_target_topic: "/target/odom"  # visPlanner目标话题名
+
+# === 静止模式参数 ===
+static_x: 2.0
+static_y: 0.0
+static_z: 1.5
+
+# === 通用轨迹参数（用于8字和D型）===
+# NOTE: Drone GOTO position is at trajectory_center = [0, 0, 1.2]
+# D-shape uses 4 G2-continuous Bezier curve segments
+# Starting point is hardcoded at (1, 0) in Bezier control points
+# So as long as trajectory_center_x = 0.0，起点始终在(1, 0)
+trajectory_size: 1.0         # 轨迹尺寸 [m] (缩放D字型的宽度和高度；基础=2.0m)
+trajectory_center_x: 0.0     # 轨迹中心X [m] - 无人机GOTO位置
+trajectory_center_y: 0.0     # 轨迹中心Y [m]
+trajectory_center_z: 1.2     # 轨迹中心Z [m] (与RealFlight_ros一致)
+trajectory_times: 1          # 循环次数
+
+# 基于速度的参数（新增：替代固定的 trajectory_duration）
+max_linear_velocity: 1.5     # 最大线速度 [m/s]
+linear_acceleration: 0.4     # 线加速度/减速度 [m/s²]
+# trajectory_duration, ramp_up_time, ramp_down_time 将自动计算
+
+# Initial phase (not used for d_shape, but kept for compatibility)
+circle_init_phase: 0.0       # Initial phase angle [rad]
+
+# === 运动参数 ===
+stationary_time: 3.0   # 初始静止时间 [s]
+                             # Initial position: 1m in front of trajectory center
+motion_duration: -1.0  # 总运动时长 [s]，-1表示无限制（visPlanner特有参数）
+
+# Control parameters
+max_speed: -1.0              # Maximum linear speed limit [m/s] (negative = no limit)
+

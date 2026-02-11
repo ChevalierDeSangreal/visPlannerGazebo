@@ -38,9 +38,18 @@
   <node pkg="tf" type="static_transform_publisher" name="map_to_world" 
         args="0 0 0 0 0 0 map world 100"/>
   
-  <!-- 目标发布器 - 同时发布odom和B-spline轨迹（未来轨迹） -->
+  <!-- 目标发布器 
+       支持多种轨迹类型：circle, figure8, dshape
+       取消注释下面其中一行来选择轨迹类型
+  -->
+  <!-- Trajectory configuration file selection -->
+  <!-- Uncomment ONE of the following lines to select trajectory type -->
+  <arg name="config_file" default="$(find px4_test_framework)/config/target_params.yaml"/>          <!-- Circle trajectory -->
+  <!-- <arg name="config_file" default="$(find px4_test_framework)/config/target_params_figure8.yaml"/> --> <!-- Figure-8 trajectory -->
+  <!-- <arg name="config_file" default="$(find px4_test_framework)/config/target_params_dshape.yaml"/> -->   <!-- D-shape trajectory -->
+  
   <node pkg="px4_test_framework" type="target_publisher_node" name="target_publisher" output="screen">
-    <rosparam command="load" file="$(find px4_test_framework)/config/target_params.yaml"/>
+    <rosparam command="load" file="$(arg config_file)"/>
     <param name="drone_id" value="$(arg drone_id)"/>
     <param name="use_sim_time" value="false"/>
     <!-- B-spline轨迹发布参数 -->
