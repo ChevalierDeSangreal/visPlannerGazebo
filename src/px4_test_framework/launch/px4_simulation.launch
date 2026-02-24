@@ -44,9 +44,9 @@
   -->
   <!-- Trajectory configuration file selection -->
   <!-- Uncomment ONE of the following lines to select trajectory type -->
-  <arg name="config_file" default="$(find px4_test_framework)/config/target_params.yaml"/>          <!-- Circle trajectory -->
-  <!-- <arg name="config_file" default="$(find px4_test_framework)/config/target_params_figure8.yaml"/> --> <!-- Figure-8 trajectory -->
-  <!-- <arg name="config_file" default="$(find px4_test_framework)/config/target_params_dshape.yaml"/> -->   <!-- D-shape trajectory -->
+  <!-- <arg name="config_file" default="$(find px4_test_framework)/config/target_params.yaml"/>          Circle trajectory -->
+  <arg name="config_file" default="$(find px4_test_framework)/config/target_params_figure8.yaml"/> Figure-8 trajectory
+  <!-- <arg name="config_file" default="$(find px4_test_framework)/config/target_params_dshape.yaml"/>   D-shape trajectory -->
   
   <node pkg="px4_test_framework" type="target_publisher_node" name="target_publisher" output="screen">
     <rosparam command="load" file="$(arg config_file)"/>

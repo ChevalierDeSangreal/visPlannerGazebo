@@ -26,15 +26,17 @@ trajectory_size: 2.0         # 轨迹尺寸 [m] (scale parameter for figure-8)
 trajectory_center_x: 0.0     # 轨迹中心X [m] - 无人机GOTO位置
 trajectory_center_y: 0.0     # 轨迹中心Y [m]
 trajectory_center_z: 1.2     # 轨迹中心Z [m] (与RealFlight_ros一致)
-trajectory_duration: 6.0     # 单周期时间 [s] (与RealFlight_ros一致)
 trajectory_times: 1          # 循环次数
+
+# Velocity-based parameters (NEW: replaces fixed trajectory_duration)
+max_linear_velocity: 1.5     # Maximum linear velocity [m/s]
+linear_acceleration: 0.5     # Linear acceleration/deceleration [m/s²]
+# trajectory_duration, ramp_up_time, ramp_down_time will be AUTO-CALCULATED
 
 # Initial phase (not used for figure8, but kept for compatibility)
 circle_init_phase: 0.0       # Initial phase angle [rad]
 
 # === 运动参数 ===
-ramp_up_time: 3.0      # 加速时间 [s] (与RealFlight_ros一致)
-ramp_down_time: 3.0    # 减速时间 [s] (与RealFlight_ros一致)
 stationary_time: 3.0   # 初始静止时间 [s]
                              # Initial position: 1m in front of trajectory center
 motion_duration: -1.0  # 总运动时长 [s]，-1表示无限制（visPlanner特有参数）

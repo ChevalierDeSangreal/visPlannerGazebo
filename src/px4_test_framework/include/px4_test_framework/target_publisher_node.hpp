@@ -6,10 +6,8 @@
 #include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/TwistStamped.h>
 #include <std_msgs/Int32.h>
-#include <traj_utils/Bspline.h>
 #include <Eigen/Dense>
 #include <chrono>
-#include <vector>
 
 /**
  * @brief 目标轨迹发布器节点
@@ -70,23 +68,20 @@ private:
                            double vx, double vy, double vz);
   void publish_target_position(double x, double y, double z);
   void publish_target_velocity(double vx, double vy, double vz);
-  void generate_and_publish_bspline_trajectory();  // 生成并发布未来B-spline轨迹
   
   // ROS节点句柄
   ros::NodeHandle nh_;
   ros::NodeHandle nh_private_;
   
   // 发布器和订阅器
-  ros::Publisher odom_pub_;           // 发布nav_msgs/Odometry，兼容visPlanner
-  ros::Publisher elastic_target_pub_;  // visPlanner专用目标话题
-  ros::Publisher position_pub_;       // 发布geometry_msgs/PointStamped
+  ros::Publisher odom_pub_;           // 发布nav_msgs/Odometry，兼容Elastic-Tracker
+  ros::Publisher elastic_target_pub_;  // Elastic-Tracker专用目标话题
+  ros::Publisher position_pub_;       // 发布geometry_msgs/PointStamped，神经网络控制使用
   ros::Publisher velocity_pub_;        // 发布geometry_msgs/TwistStamped
-  ros::Publisher bspline_pub_;        // 发布B-spline轨迹（未来轨迹）
   ros::Subscriber state_sub_;         // 订阅状态机状态
   
   // 定时器
   ros::Timer timer_;
-  ros::Timer bspline_timer_;  // B-spline轨迹发布定时器
   
   // 参数
   TrajectoryMode mode_;
@@ -120,7 +115,6 @@ private:
   // Velocity-based parameters for D-shape trajectory
   double max_linear_velocity_;    // 最大线速度 [m/s] (for D-shape)
   double linear_acceleration_;    // 线加速度/减速度 [m/s²] (for D-shape)
-  double motion_duration_;        // 总运动时长 [s]，-1表示无限制
   
   // 计算得到的参数
   double effective_duration_;     // 有效单圈时间
@@ -139,7 +133,6 @@ private:
   ros::Time start_time_;
   std::chrono::steady_clock::time_point start_time_system_;
   bool use_sim_time_;
-  bool motion_stopped_;           // 运动是否已停止（时长到达后）
   
   // 状态机相关
   int drone_id_;                      // 无人机ID
@@ -149,12 +142,7 @@ private:
   std::chrono::steady_clock::time_point traj_entry_time_system_;  // 系统时间版本
   
   // 话题配置
-  std::string elastic_target_topic_;  // visPlanner目标话题名
-  std::string bspline_topic_;  // B-spline轨迹发布话题
-  int target_drone_id_;  // 目标无人机ID（用于B-spline消息）
-  double bspline_duration_;  // B-spline轨迹持续时间 [s]
-  double bspline_publish_period_;  // B-spline发布周期 [s]
-  int traj_id_counter_;  // 轨迹ID计数器
+  std::string elastic_target_topic_;  // Elastic-Tracker目标话题名
 };
 
 #endif // TARGET_PUBLISHER_NODE_HPP

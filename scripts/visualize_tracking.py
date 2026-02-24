@@ -12,7 +12,8 @@ import sys
 
 def main():
     # 数据文件路径
-    data_file = '/tmp/elastic_tracker_tracking_data.csv'
+    # data_file = '/tmp/elastic_tracker_tracking_data.csv'
+    data_file = '/home/core/wangzimo/visPlanner/test_log/typeD.csv'
     
     # 检查文件是否存在
     if not os.path.exists(data_file):
@@ -106,7 +107,32 @@ def main():
     angle_rad_sorted = np.arccos(cos_angle)
     angle_deg_sorted = np.degrees(angle_rad_sorted)
     
+    # 检测目标物体开始移动和停止移动的时刻
+    target_velocity_magnitude_sorted = np.sqrt(data_sorted['target_vx']**2 + 
+                                               data_sorted['target_vy']**2 + 
+                                               data_sorted['target_vz']**2)
+    velocity_threshold = 0.05
+    is_moving = target_velocity_magnitude_sorted > velocity_threshold
+    
+    # 找到开始移动的时刻（从静止到移动的转变）
+    start_moving_indices = []
+    for i in range(1, len(is_moving)):
+        if not is_moving[i-1] and is_moving[i]:
+            start_moving_indices.append(i)
+    
+    # 找到停止移动的时刻（从移动到静止的转变）
+    stop_moving_indices = []
+    for i in range(1, len(is_moving)):
+        if is_moving[i-1] and not is_moving[i]:
+            stop_moving_indices.append(i)
+    
+    # 提取对应的时间
+    start_moving_times = [time_sorted.iloc[i] for i in start_moving_indices]
+    stop_moving_times = [time_sorted.iloc[i] for i in stop_moving_indices]
+    
     print(f"✅ 指标计算完成")
+    print(f"   开始移动时刻: {start_moving_times} 秒")
+    print(f"   停止移动时刻: {stop_moving_times} 秒")
     
     # 创建图表
     print(f"\n🎨 生成可视化图表...")
@@ -120,6 +146,16 @@ def main():
                          distance_sorted.mean() - distance_sorted.std(),
                          distance_sorted.mean() + distance_sorted.std(),
                          alpha=0.2, color='blue', label=f'±1σ: {distance_sorted.std():.4f} m')
+    # 标记目标开始移动和停止移动的时刻
+    for t in start_moving_times:
+        axes[0].axvline(x=t, color='green', linestyle=':', linewidth=2, alpha=0.7)
+    for t in stop_moving_times:
+        axes[0].axvline(x=t, color='red', linestyle=':', linewidth=2, alpha=0.7)
+    # 添加图例说明
+    if start_moving_times:
+        axes[0].axvline(x=-999, color='green', linestyle=':', linewidth=2, label='Target Start Moving')
+    if stop_moving_times:
+        axes[0].axvline(x=-999, color='red', linestyle=':', linewidth=2, label='Target Stop Moving')
     axes[0].set_xlabel('Time (s)', fontsize=12)
     axes[0].set_ylabel('Distance (m)', fontsize=12)
     axes[0].set_title('visPlanner: Distance to Target vs Time', fontsize=14, fontweight='bold')
@@ -133,6 +169,16 @@ def main():
     axes[1].axhline(y=0, color='k', linestyle='-', linewidth=0.5, alpha=0.3)
     axes[1].axhline(y=velocity_error_sorted.mean(), color='r', linestyle='--',
                     label=f'Mean: {velocity_error_sorted.mean():.4f} m/s', linewidth=1.5)
+    # 标记目标开始移动和停止移动的时刻
+    for t in start_moving_times:
+        axes[1].axvline(x=t, color='green', linestyle=':', linewidth=2, alpha=0.7)
+    for t in stop_moving_times:
+        axes[1].axvline(x=t, color='red', linestyle=':', linewidth=2, alpha=0.7)
+    # 添加图例说明
+    if start_moving_times:
+        axes[1].axvline(x=-999, color='green', linestyle=':', linewidth=2, label='Target Start Moving')
+    if stop_moving_times:
+        axes[1].axvline(x=-999, color='red', linestyle=':', linewidth=2, label='Target Stop Moving')
     axes[1].set_xlabel('Time (s)', fontsize=12)
     axes[1].set_ylabel('Velocity Error (m/s)', fontsize=12)
     axes[1].set_title('visPlanner: Velocity Error vs Time', fontsize=14, fontweight='bold')
@@ -149,6 +195,16 @@ def main():
                          angle_deg_sorted.mean() - angle_deg_sorted.std(),
                          angle_deg_sorted.mean() + angle_deg_sorted.std(),
                          alpha=0.2, color='green', label=f'±1σ: {angle_deg_sorted.std():.2f}°')
+    # 标记目标开始移动和停止移动的时刻
+    for t in start_moving_times:
+        axes[2].axvline(x=t, color='green', linestyle=':', linewidth=2, alpha=0.7)
+    for t in stop_moving_times:
+        axes[2].axvline(x=t, color='red', linestyle=':', linewidth=2, alpha=0.7)
+    # 添加图例说明
+    if start_moving_times:
+        axes[2].axvline(x=-999, color='green', linestyle=':', linewidth=2, label='Target Start Moving')
+    if stop_moving_times:
+        axes[2].axvline(x=-999, color='red', linestyle=':', linewidth=2, label='Target Stop Moving')
     axes[2].set_xlabel('Time (s)', fontsize=12)
     axes[2].set_ylabel('Angle (degrees)', fontsize=12)
     axes[2].set_title('visPlanner: Body X-axis to Target Direction Angle vs Time', 

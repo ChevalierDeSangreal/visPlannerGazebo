@@ -1,8 +1,5 @@
 #include "px4_test_framework/target_publisher_node.hpp"
-#include <bspline_opt/uniform_bspline.h>
-#include <traj_utils/Bspline.h>
 #include <cmath>
-#include <vector>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -15,7 +12,6 @@ TargetPublisherNode::TargetPublisherNode(ros::NodeHandle& nh, ros::NodeHandle& n
   , drone_id_(0)
   , current_state_(-1)
   , in_traj_state_(false)
-  , motion_stopped_(false)
   , dshape_current_arc_length_(0.0)
 {
   // 读取参数
@@ -51,9 +47,8 @@ TargetPublisherNode::TargetPublisherNode(ros::NodeHandle& nh, ros::NodeHandle& n
   nh_private_.param("ramp_up_time", ramp_up_time_, 3.0);
   nh_private_.param("ramp_down_time", ramp_down_time_, 3.0);
   nh_private_.param("stationary_time", stationary_time_, 3.0);
-  nh_private_.param("motion_duration", motion_duration_, -1.0);  // -1表示无限制
   
-  // Velocity-based parameters for D-shape trajectory
+  // Velocity-based parameters for D-shape and Figure-8 trajectories
   nh_private_.param("max_linear_velocity", max_linear_velocity_, 1.5);
   nh_private_.param("linear_acceleration", linear_acceleration_, 0.4);
   
@@ -94,6 +89,40 @@ TargetPublisherNode::TargetPublisherNode(ros::NodeHandle& nh, ros::NodeHandle& n
     ROS_INFO("[D-Shape Segments] lengths=[%.2f, %.2f, %.2f, %.2f]m",
              dshape_segment_lengths_[0], dshape_segment_lengths_[1], 
              dshape_segment_lengths_[2], dshape_segment_lengths_[3]);
+  }
+  
+  // Auto-calculate trajectory parameters for Figure-8
+  if (mode_ == TrajectoryMode::FIGURE_EIGHT) {
+    // Estimate Figure-8 path length (approximate)
+    // For a lemniscate: approximate arc length ≈ 5.244 * a (where a is the scale parameter)
+    double path_length = 5.244 * trajectory_size_;
+    
+    // Calculate ramp times from acceleration
+    ramp_up_time_ = max_linear_velocity_ / linear_acceleration_;
+    ramp_down_time_ = max_linear_velocity_ / linear_acceleration_;
+    
+    // Calculate distances during acceleration phases
+    double accel_distance = 0.5 * linear_acceleration_ * ramp_up_time_ * ramp_up_time_;
+    double decel_distance = 0.5 * linear_acceleration_ * ramp_down_time_ * ramp_down_time_;
+    
+    // Remaining distance at constant velocity
+    double const_distance = path_length - accel_distance - decel_distance;
+    
+    if (const_distance < 0) {
+      // If trajectory too short to reach max velocity, adjust
+      ROS_WARN("Trajectory too short to reach max velocity, adjusting parameters");
+      double t_total = 2.0 * std::sqrt(path_length / linear_acceleration_);
+      ramp_up_time_ = t_total / 2.0;
+      ramp_down_time_ = t_total / 2.0;
+      trajectory_duration_ = t_total;
+    } else {
+      // Calculate constant velocity time
+      double const_time = const_distance / max_linear_velocity_;
+      trajectory_duration_ = ramp_up_time_ + const_time + ramp_down_time_;
+    }
+    
+    ROS_INFO("[Figure-8 Velocity-Based] path_length=%.2fm, duration=%.2fs, ramp_time=%.2fs, max_vel=%.2fm/s",
+             path_length, trajectory_duration_, ramp_up_time_, max_linear_velocity_);
   }
   
   nh_.param("use_sim_time", use_sim_time_, false);
@@ -141,51 +170,44 @@ TargetPublisherNode::TargetPublisherNode(ros::NodeHandle& nh, ros::NodeHandle& n
       mode_str = "CIRCLE";
       ROS_INFO("Circle radius: %.2f m", circle_radius_);
       ROS_INFO("Circle center: [%.2f, %.2f, %.2f] m", 
-               circle_center_x_, circle_center_y_, circle_center_z_);
+             circle_center_x_, circle_center_y_, circle_center_z_);
       ROS_INFO("Number of circles: %d", circle_times_);
       ROS_INFO("Motion duration: %.2f s", 
-               ramp_up_time_ + total_constant_duration_ + ramp_down_time_);
+             ramp_up_time_ + total_constant_duration_ + ramp_down_time_);
       break;
     case TrajectoryMode::FIGURE_EIGHT:
       mode_str = "FIGURE_EIGHT";
       ROS_INFO("Trajectory size: %.2f m", trajectory_size_);
       ROS_INFO("Trajectory center: [%.2f, %.2f, %.2f] m", 
-               trajectory_center_x_, trajectory_center_y_, trajectory_center_z_);
+             trajectory_center_x_, trajectory_center_y_, trajectory_center_z_);
       ROS_INFO("Number of cycles: %d", trajectory_times_);
       ROS_INFO("Motion duration: %.2f s", 
-               ramp_up_time_ + total_constant_duration_ + ramp_down_time_);
+             ramp_up_time_ + total_constant_duration_ + ramp_down_time_);
       break;
     case TrajectoryMode::D_SHAPE:
       mode_str = "D_SHAPE";
       ROS_INFO("Trajectory size: %.2f m", trajectory_size_);
       ROS_INFO("Trajectory center: [%.2f, %.2f, %.2f] m", 
-               trajectory_center_x_, trajectory_center_y_, trajectory_center_z_);
+             trajectory_center_x_, trajectory_center_y_, trajectory_center_z_);
       ROS_INFO("Number of cycles: %d", trajectory_times_);
       ROS_INFO("Motion duration: %.2f s", 
-               ramp_up_time_ + total_constant_duration_ + ramp_down_time_);
+             ramp_up_time_ + total_constant_duration_ + ramp_down_time_);
       break;
   }
   ROS_INFO("Trajectory mode: %s", mode_str.c_str());
   ROS_INFO("Publish frequency: %.0f Hz", 1.0/timer_period_);
   ROS_INFO("Clock mode: %s", use_sim_time_ ? "SIM_TIME" : "SYSTEM_TIME");
-  if (motion_duration_ > 0) {
-    ROS_INFO("⏱️  Motion duration limit: %.1f seconds (will stop publishing after this)", motion_duration_);
-  } else {
-    ROS_INFO("Motion duration: unlimited");
-  }
   
   // 创建发布器 - 根据方法需求发布不同格式
-  // visPlanner 需要 nav_msgs/Odometry 类型的 target 话题
+  // Elastic-Tracker 需要 nav_msgs/Odometry 类型的 target 话题
   odom_pub_ = nh_.advertise<nav_msgs::Odometry>("/target/odom", 10);
-  // 其他格式
+  // 神经网络控制需要 geometry_msgs/PointStamped 类型的 /target/position
   position_pub_ = nh_.advertise<geometry_msgs::PointStamped>("/target/position", 10);
   velocity_pub_ = nh_.advertise<geometry_msgs::TwistStamped>("/target/velocity", 10);
   
-  // 同时发布到 visPlanner 期望的话题名（如果不同）
+  // 同时发布到 Elastic-Tracker 期望的话题名（如果不同）
   nh_private_.param<std::string>("elastic_target_topic", elastic_target_topic_, "/target/odom");
   elastic_target_pub_ = nh_.advertise<nav_msgs::Odometry>(elastic_target_topic_, 10);
-  
-  // 注意：不再发布 B-spline，由 Predictor 负责预测轨迹并发布 B-spline
   
   // 订阅状态机状态
   std::string state_topic = "/state/state_drone_" + std::to_string(drone_id_);
@@ -195,8 +217,6 @@ TargetPublisherNode::TargetPublisherNode(ros::NodeHandle& nh, ros::NodeHandle& n
   // 创建定时器
   timer_ = nh_.createTimer(ros::Duration(timer_period_), 
                           &TargetPublisherNode::timer_callback, this);
-  
-  // 不再有 B-spline 定时器
   
   ROS_INFO("Subscribed to state machine: %s", state_topic.c_str());
   ROS_INFO("Target publisher node initialized successfully!");
@@ -214,25 +234,18 @@ void TargetPublisherNode::state_callback(const std_msgs::Int32::ConstPtr& msg) {
     // 检查是否进入 TRAJ 状态（状态值 5）
     if (new_state == 5 && !in_traj_state_) {
       in_traj_state_ = true;
-      motion_stopped_ = false;  // 重置停止标志
       if (use_sim_time_) {
         traj_entry_time_ = ros::Time::now();
       } else {
         traj_entry_time_system_ = std::chrono::steady_clock::now();
       }
-      
-      // 只发布 odom，不再发布 B-spline（由 Predictor 负责）
-      ROS_INFO("✅ Entered TRAJ state - Target odometry will be published for Predictor");
-      ROS_INFO("Target will start motion after %.1f seconds", stationary_time_);
-      if (motion_duration_ > 0) {
-        ROS_INFO("⏱️  Will stop publishing after %.1f seconds", motion_duration_);
-      }
+      ROS_INFO("✅ Entered TRAJ state - Target will start motion after %.1f seconds", stationary_time_);
     }
     
     // 检查是否离开 TRAJ 状态
     if (new_state != 5 && in_traj_state_) {
       in_traj_state_ = false;
-      ROS_INFO("❌ Exited TRAJ state");
+      ROS_INFO("Left TRAJ state - Target will return to initial position");
     }
   }
 }
@@ -302,12 +315,6 @@ double TargetPublisherNode::calculate_angular_velocity_at_time(double t) {
 }
 
 void TargetPublisherNode::timer_callback(const ros::TimerEvent& event) {
-  // 如果运动已停止（超过时长），停止发布
-  if (motion_stopped_) {
-    ROS_INFO_THROTTLE(5.0, "⏹️  Motion stopped (duration limit reached) - no longer publishing");
-    return;
-  }
-  
   // 如果不在 TRAJ 状态，始终发布初始位置（静止）
   if (!in_traj_state_) {
     // 发布初始位置（轨迹的起始点）
@@ -350,16 +357,6 @@ void TargetPublisherNode::timer_callback(const ros::TimerEvent& event) {
     auto elapsed_duration = std::chrono::duration_cast<std::chrono::duration<double>>(
       current_time_system - traj_entry_time_system_);
     elapsed_since_traj = elapsed_duration.count();
-  }
-  
-  // 检查是否超过运动时长限制
-  if (motion_duration_ > 0 && elapsed_since_traj >= motion_duration_) {
-    if (!motion_stopped_) {
-      motion_stopped_ = true;
-      ROS_WARN("⏱️  Motion duration limit reached (%.1f seconds) - STOPPING publication", motion_duration_);
-      ROS_WARN("🛑 Target publisher will no longer publish, planner should detect and exit TRAJ state");
-    }
-    return;
   }
   
   // 如果还在静止等待阶段，发布初始位置（根据轨迹类型）
@@ -457,15 +454,6 @@ void TargetPublisherNode::generate_circular_trajectory(double t) {
 void TargetPublisherNode::generate_figure_eight_trajectory(double t) {
   double x, y, z, vx, vy, vz;
   
-  // 检查运动时长限制
-  if (motion_duration_ > 0 && t >= motion_duration_) {
-    if (!motion_stopped_) {
-      motion_stopped_ = true;
-      ROS_INFO("Motion duration limit reached (%.1f s), stopping at current position", motion_duration_);
-    }
-    return;  // 停止发布
-  }
-  
   // 计算归一化参数
   double param = calculate_normalized_parameter_at_time(t);
   double param_vel = calculate_parameter_velocity_at_time(t);
@@ -475,6 +463,7 @@ void TargetPublisherNode::generate_figure_eight_trajectory(double t) {
   bool trajectory_complete = (param >= trajectory_times_) || (t >= total_motion_time);
   
   if (trajectory_complete) {
+    // 保持在终点位置
     double final_theta = trajectory_times_ * 2.0 * M_PI;
     double a = trajectory_size_;
     double x_local = a * std::sin(final_theta) * std::cos(final_theta) + 1.0;
@@ -489,32 +478,53 @@ void TargetPublisherNode::generate_figure_eight_trajectory(double t) {
     publish_target_position(x, y, z);
     publish_target_velocity(vx, vy, vz);
     
-    ROS_INFO_THROTTLE(2.0, "[FIGURE8-COMPLETE] cycle=%.2f/%d | HOLDING",
-                         param, trajectory_times_);
+    ROS_INFO_THROTTLE(2.0, "[FIGURE8-COMPLETE] cycle=%.2f/%d | HOLDING at [%.2f, %.2f, %.2f]",
+                         param, trajectory_times_, x, y, z);
     return;
   }
   
+  // 转换为角度参数
   double theta = param * 2.0 * M_PI;
   double theta_dot = param_vel * 2.0 * M_PI;
   
+  // 8字参数方程（李萨如曲线）
   double a = trajectory_size_;
-  double x_local = a * std::sin(theta) * std::cos(theta) + 1.0;
+  double x_local = a * std::sin(theta) * std::cos(theta) + 1.0;  // +1.0偏移使起点在正前方1m
   double y_local = a * std::sin(theta);
   
   x = trajectory_center_x_ + x_local;
   y = trajectory_center_y_ + y_local;
   z = trajectory_center_z_;
   
+  // 速度（求导）
   double vx_local = a * std::cos(2.0 * theta) * theta_dot;
   double vy_local = a * std::cos(theta) * theta_dot;
   
-  vx = vx_local;
-  vy = vy_local;
+  // 归一化速度，确保不超过max_linear_velocity（与D-shape一致）
+  double tangent_magnitude = std::sqrt(vx_local * vx_local + vy_local * vy_local);
+  if (tangent_magnitude > 1e-6) {
+    // 计算当前应有的物理速度（基于加速度曲线）
+    double current_velocity = 0.0;
+    if (t <= ramp_up_time_) {
+      current_velocity = linear_acceleration_ * t;
+    } else if (t <= ramp_up_time_ + total_constant_duration_) {
+      current_velocity = max_linear_velocity_;
+    } else if (t <= ramp_up_time_ + total_constant_duration_ + ramp_down_time_) {
+      double t_in_decel = t - ramp_up_time_ - total_constant_duration_;
+      current_velocity = max_linear_velocity_ - linear_acceleration_ * t_in_decel;
+    }
+    // 归一化切向量，乘以实际物理速度
+    vx = (vx_local / tangent_magnitude) * current_velocity;
+    vy = (vy_local / tangent_magnitude) * current_velocity;
+  } else {
+    vx = 0.0;
+    vy = 0.0;
+  }
   vz = 0.0;
   
   double v_linear = std::sqrt(vx*vx + vy*vy);
-  ROS_INFO_THROTTLE(2.0, "[FIGURE8] t=%.1fs | cycle=%.2f/%d | v=%.2f m/s",
-                    t, param, trajectory_times_, v_linear);
+  ROS_INFO_THROTTLE(2.0, "[FIGURE8] t=%.1fs | cycle=%.2f/%d | pos=[%.2f, %.2f, %.2f] | v=%.2f m/s",
+                    t, param, trajectory_times_, x, y, z, v_linear);
   
   publish_target_odom(x, y, z, vx, vy, vz);
   publish_target_position(x, y, z);
@@ -543,7 +553,7 @@ void TargetPublisherNode::publish_target_odom(double x, double y, double z,
   // 发布到通用话题
   odom_pub_.publish(msg);
   
-  // 同时发布到visPlanner专用话题（如果不同）
+  // 同时发布到Elastic-Tracker专用话题（如果不同）
   if (elastic_target_topic_ != "/target/odom") {
     elastic_target_pub_.publish(msg);
   }
@@ -656,15 +666,6 @@ double TargetPublisherNode::calculate_parameter_velocity_at_time(double t) {
 
 void TargetPublisherNode::generate_dshape_trajectory(double t) {
   double x, y, z, vx, vy, vz;
-  
-  // 检查运动时长限制
-  if (motion_duration_ > 0 && t >= motion_duration_) {
-    if (!motion_stopped_) {
-      motion_stopped_ = true;
-      ROS_INFO("Motion duration limit reached (%.1f s), stopping at current position", motion_duration_);
-    }
-    return;  // 停止发布
-  }
   
   // Phase 2: D-shape with arc-length based tracking
   // NEW APPROACH: Calculate target arc length based on velocity profile,
@@ -826,127 +827,9 @@ void TargetPublisherNode::generate_dshape_trajectory(double t) {
   
   // Debug log
   double v_linear = std::sqrt(vx*vx + vy*vy);
-  ROS_INFO_THROTTLE(2.0, "[DSHAPE-%s] t=%.1fs | seg=%d | arc=%.2f/%.2fm | v=%.2fm/s",
-                       phase.c_str(), t, segment, arc_length_in_cycle, dshape_total_arc_length_, v_linear);
-}
-  
-  // 计算归一化参数
-  double param = calculate_normalized_parameter_at_time(t);
-  double param_vel = calculate_parameter_velocity_at_time(t);
-  
-  // 检查轨迹是否完成
-  double total_motion_time = ramp_up_time_ + total_constant_duration_ + ramp_down_time_;
-  bool trajectory_complete = (param >= trajectory_times_) || (t >= total_motion_time);
-  
-  if (trajectory_complete) {
-    x = trajectory_center_x_ + 1.0;
-    y = trajectory_center_y_;
-    z = trajectory_center_z_;
-    vx = 0.0; vy = 0.0; vz = 0.0;
-    
-    publish_target_odom(x, y, z, vx, vy, vz);
-    publish_target_position(x, y, z);
-    publish_target_velocity(vx, vy, vz);
-    
-    ROS_INFO_THROTTLE(2.0, "[DSHAPE-COMPLETE] cycle=%.2f/%d | HOLDING",
-                         param, trajectory_times_);
-    return;
-  }
-  
-  // D字型重新设计：更清晰的几何，左侧直边，右侧弧边
-  // 起点在右侧 (1.0, 0)，左侧直边在 x = 1.0 - 2*a
-  double a = trajectory_size_ / 2.0;  // 半宽/半径（基础 trajectory_size = 2.0）
-  
-  // D字型分段：
-  // 0: 右下角（底部到中右）
-  // 1: 右上角（中右到顶部）
-  // 2: 左侧直边（顶部到底部）- 最长段
-  // 3: 底部过渡（左下回到起点）
-  
-  // 时间分配：拐弯更缓和（增加拐弯段时间，降低拐弯速度）
-  double segment_ratios[4] = {0.12, 0.20, 0.38, 0.30};  // [右下, 右上, 左直, 底部]
-  double cumulative[5] = {0.0, 0.12, 0.32, 0.70, 1.0};
-  
-  // 找到当前段
-  int segment = 0;
-  double param_normalized = param - std::floor(param);  // 归一化到单周期 [0,1]
-  for (int i = 0; i < 4; ++i) {
-    if (param_normalized <= cumulative[i + 1]) {
-      segment = i;
-      break;
-    }
-  }
-  
-  // 段内局部参数 [0, 1]
-  double t_local = (param_normalized - cumulative[segment]) / segment_ratios[segment];
-  t_local = std::min(1.0, std::max(0.0, t_local));  // 限制到 [0,1]
-  double t_local_dot = param_vel / segment_ratios[segment];
-  
-  // 控制点（相对于 trajectory_center）
-  // offset_x = 1.0（起点），straight_x = 1.0 - 2*a（左边缘）
-  double P0x, P0y, P1x, P1y, P2x, P2y, P3x, P3y;
-  double offset_x = 1.0;
-  double straight_x = offset_x - 2.0 * a;
-  
-  if (segment == 0) {
-    // 段0：从右中 (1.0, 0) 向上弯曲
-    P0x = offset_x;              P0y = 0.0;
-    P1x = offset_x;              P1y = a * 0.55;
-    P2x = offset_x - a * 0.2;    P2y = a;
-    P3x = offset_x - a;          P3y = a;  // 到达顶部中间
-  } else if (segment == 1) {
-    // 段1：从顶部中间向左弯曲到直边顶点
-    P0x = offset_x - a;          P0y = a;
-    P1x = offset_x - a * 1.8;    P1y = a;
-    P2x = straight_x;            P2y = a;
-    P3x = straight_x;            P3y = a * 0.5;  // 进入直边下降段
-  } else if (segment == 2) {
-    // 段2：左侧直边（从 a*0.5 降到 -a）
-    P0x = straight_x;            P0y = a * 0.5;
-    P1x = straight_x;            P1y = 0.0;
-    P2x = straight_x;            P2y = -a * 0.5;
-    P3x = straight_x;            P3y = -a;
-  } else {
-    // 段3：从左下角绕回起点
-    P0x = straight_x;            P0y = -a;
-    P1x = offset_x - a * 0.5;    P1y = -a;
-    P2x = offset_x;              P2y = -a * 0.5;
-    P3x = offset_x;              P3y = 0.0;  // 回到起点
-  }
-  
-  // 三次贝塞尔计算
-  double mt = 1.0 - t_local;
-  double t2 = t_local * t_local;
-  double mt2 = mt * mt;
-  
-  double x_local = mt * mt * mt * P0x + 3.0 * mt2 * t_local * P1x + 
-                   3.0 * mt * t2 * P2x + t2 * t_local * P3x;
-  double y_local = mt * mt * mt * P0y + 3.0 * mt2 * t_local * P1y + 
-                   3.0 * mt * t2 * P2y + t2 * t_local * P3y;
-  
-  x = trajectory_center_x_ + x_local;
-  y = trajectory_center_y_ + y_local;
-  z = trajectory_center_z_;
-  
-  // 速度：dB/dt = 3[(1-t)²(P₁-P₀) + 2(1-t)t(P₂-P₁) + t²(P₃-P₂)] * dt/dparam
-  double vx_local = 3.0 * (mt2 * (P1x - P0x) + 
-                           2.0 * mt * t_local * (P2x - P1x) + 
-                           t2 * (P3x - P2x)) * t_local_dot;
-  double vy_local = 3.0 * (mt2 * (P1y - P0y) + 
-                           2.0 * mt * t_local * (P2y - P1y) + 
-                           t2 * (P3y - P2y)) * t_local_dot;
-  
-  vx = vx_local;
-  vy = vy_local;
-  vz = 0.0;
-  
-  double v_linear = std::sqrt(vx*vx + vy*vy);
-  ROS_INFO_THROTTLE(2.0, "[DSHAPE-%s] t=%.1fs | seg=%d | arc=%.2f/%.2fm | v=%.2fm/s",
-                       phase.c_str(), t, segment, arc_length_in_cycle, dshape_total_arc_length_, v_linear);
-  
-  publish_target_odom(x, y, z, vx, vy, vz);
-  publish_target_position(x, y, z);
-  publish_target_velocity(vx, vy, vz);
+  ROS_INFO_THROTTLE(2.0, "[DSHAPE-%s] t=%.1fs | seg=%d | arc=%.2f/%.2fm | pos=[%.2f,%.2f,%.2f] | vel=%.2fm/s",
+                       phase.c_str(), t, segment, arc_length_in_cycle, dshape_total_arc_length_,
+                       x, y, z, v_linear);
 }
 
 double TargetPublisherNode::calculate_bezier_arc_length(double P0x, double P0y, double P1x, double P1y,
@@ -1069,9 +952,3 @@ void TargetPublisherNode::calculate_dshape_segment_lengths()
     dshape_cumulative_lengths_[i + 1] = dshape_total_arc_length_;
   }
 }
-
-
-
-// B-spline 生成函数已移除
-// 现在由 Predictor 负责接收 /target/odom 并预测生成 B-spline 轨迹
-
